@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Landau Theory of Phase Transitions</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: the free-energy landscape on top (where the system sits), then its two summaries side by side: the order parameter along the current cooling path, and the map of all paths with the current point on it. */
+:root{
+  color-scheme: dark;
+  --bg:#0c1118;
+  --panel:#141b25;
+  --line:#263142;
+  --ink:#e6ebf2;
+  --muted:#8e9bb0;
+  --crest:#ffb454;   /* the state the system is in, accent */
+  --trough:#4aa8ff;  /* continuous transition line */
+  --warn:#ff7a6b;    /* first-order line */
+  --display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.45}
+main{max-width:820px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:14px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:62ch}
+.back{font:400 13px var(--mono);color:var(--muted);text-decoration:none}
+.back:hover{color:var(--ink)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:500 14px var(--display);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 12px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--crest);outline-offset:2px}
+button.primary{background:var(--crest);border-color:var(--crest);color:#1a1205}
+canvas{display:block;width:100%;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+#land{height:270px}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.plots canvas{height:250px}
+#phase{touch-action:none;cursor:crosshair}
+@media (max-width:600px){.plots{grid-template-columns:1fr}}
+.status{font:400 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.status b{color:var(--ink);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{font-size:13px;padding:6px 10px;border-radius:999px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.row label{font-size:14px}
+.row output{font:500 13px var(--mono);color:var(--crest);font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--crest);margin:4px 0 0}
+.hint{grid-column:1/-1;font-size:12px;color:var(--muted)}
+details{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--panel)}
+summary{cursor:pointer;font-weight:500}
+details p{color:var(--muted);margin-top:10px;max-width:65ch}
+.eq{font:400 13px var(--mono);color:var(--ink);background:var(--bg);border-radius:4px;padding:10px;margin-top:10px;overflow-x:auto;white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="index.html">&larr; all demos</a>
+  <header>
+    <h1>Landau Theory of Phase Transitions</h1>
+    <p class="lede">A system settles into the lowest point of its free energy. Change two coefficients and that lowest point can slide smoothly away from zero, or jump there all at once. Where the two behaviours meet is a tricritical point.</p>
+  </header>
+
+  <div class="bar">
+    <button id="cool" class="primary" type="button">Cool through the transition</button>
+  </div>
+
+  <canvas id="land" aria-label="Free energy as a function of the order parameter, with the equilibrium state marked"></canvas>
+  <p class="status" id="status"></p>
+
+  <div class="plots">
+    <canvas id="order" aria-label="Order parameter versus temperature for the current value of u"></canvas>
+    <canvas id="phase" aria-label="Phase diagram in the u, t plane. Click or drag to move the current point."></canvas>
+  </div>
+
+  <div class="chips" aria-label="Presets">
+    <button type="button" data-u="1" data-t="0.3">Continuous (u = 1)</button>
+    <button type="button" data-u="0" data-t="0.3">Tricritical (u = 0)</button>
+    <button type="button" data-u="-1" data-t="0.45">First order (u = −1)</button>
+    <button type="button" data-u="-1" data-t="0.1875">On the first-order line</button>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Temperature</h2>
+      <div class="row"><label for="t">Reduced temperature t</label><output id="o_t"></output>
+        <input id="t" type="range" min="-0.6" max="0.6" step="0.005" value="0.3">
+        <span class="hint">t ∝ T − T₀. Negative is cold.</span></div>
+    </div>
+    <div class="card">
+      <h2>Quartic coefficient</h2>
+      <div class="row"><label for="u">u</label><output id="o_u"></output>
+        <input id="u" type="range" min="-1.2" max="1.2" step="0.01" value="1">
+        <span class="hint">Positive: continuous transition. Negative: first order.</span></div>
+    </div>
+  </div>
+
+  <details>
+    <summary>What is being computed</summary>
+    <p>Near a transition the free energy is expanded in powers of an order parameter m, keeping only the terms that the symmetry m → −m allows:</p>
+    <div class="eq">f(m) = (t/2) m² + (u/4) m⁴ + (1/6) m⁶</div>
+    <p>The m⁶ term, with its coefficient scaled to 1, keeps f bounded when u is negative. The equilibrium m is the global minimum of f. Setting f′ = 0 gives m = 0 or</p>
+    <div class="eq">m² = [ −u + √(u² − 4t) ] / 2</div>
+    <p><b>u &gt; 0.</b> The minimum leaves zero continuously at t = 0 and grows as m ≈ (−t/u)^½: a second-order transition with exponent β = ½.</p>
+    <p><b>u &lt; 0.</b> An ordered minimum appears at finite m while m = 0 is still a minimum. The two are degenerate on the first-order line, where m jumps:</p>
+    <div class="eq">t* = 3u²/16,   Δm = √(3|u|/4)</div>
+    <p>Between t = 0 and t = u²/4 both minima exist and one of them is metastable. These limits of metastability are the spinodals, and they are what allow supercooling and superheating.</p>
+    <p><b>u = 0.</b> The two lines meet at the tricritical point. There m = (−t)^¼, so β = ¼.</p>
+    <p>In the phase diagram the vertical axis is t and the horizontal axis is u. The filled dot on the landscape is the equilibrium state; hollow dots are metastable minima. Real examples of this structure include ³He–⁴He mixtures, where the concentration of ³He plays the role of u.</p>
+  </details>
+</main>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const landC=$('land'), ordC=$('order'), phC=$('phase');
+const TMAX=0.6, UMAX=1.2, MMAX=1.6;
+let t=0.3, u=1, anim=0;
+
+/* ---------- physics ---------- */
+function f(m,t,u){ const m2=m*m; return t*m2/2+u*m2*m2/4+m2*m2*m2/6; }
+/* mo: ordered minimum if one exists, zeroMin: is m = 0 a local minimum, m: equilibrium (global minimum) */
+function minima(t,u){
+  const disc=u*u-4*t; let mo=null;
+  if(disc>=0){ const m2=(-u+Math.sqrt(disc))/2; if(m2>1e-9) mo=Math.sqrt(m2); }
+  const zeroMin=t>0||(t===0&&u>=0);
+  return {mo, zeroMin, m:(mo!==null&&f(mo,t,u)<0)?mo:0};
+}
+
+/* ---------- drawing ---------- */
+function setup(c){
+  const dpr=Math.min(2,window.devicePixelRatio||1), b=c.getBoundingClientRect(), w=Math.round(b.width*dpr), h=Math.round(b.height*dpr);
+  if(c.width!==w||c.height!==h){ c.width=w; c.height=h; }
+  const g=c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,b.width,b.height);
+  g.font='11px "IBM Plex Mono",monospace'; g.lineWidth=1; return [g,b.width,b.height];
+}
+const fmt=v=>(v<0?'−':'')+Math.abs(v).toFixed(2), tk=v=>(v+'').replace('-','−');
+function drawLand(M){
+  const [g,w,h]=setup(landC), L=12, R=12, Tp=30, B=28;
+  const fmin=M.mo!==null?Math.min(0,f(M.mo,t,u)):0, lo=Math.min(-0.03,fmin*1.3), hi=Math.max(0.09,-lo*1.1);
+  const X=m=>L+(m+MMAX)/(2*MMAX)*(w-L-R), Y=v=>Tp+(hi-v)/(hi-lo)*(h-Tp-B);
+  g.strokeStyle='rgba(230,235,242,.4)'; g.setLineDash([6,4]); g.beginPath(); g.moveTo(L,Y(0)); g.lineTo(w-R,Y(0)); g.stroke(); g.setLineDash([]);
+  g.fillStyle='#8e9bb0'; g.textAlign='center'; g.textBaseline='top';
+  for(const m of [-1.5,-1,-0.5,0,0.5,1,1.5]){ g.strokeStyle='rgba(142,155,176,.14)'; g.beginPath(); g.moveTo(X(m),Tp); g.lineTo(X(m),h-B); g.stroke(); g.fillText(tk(m),X(m),h-B+5); }
+  g.save(); g.beginPath(); g.rect(L,Tp,w-L-R,h-Tp-B); g.clip();
+  g.beginPath(); for(let i=0;i<=480;i++){ const m=-MMAX+i/480*2*MMAX, y=Y(f(m,t,u)); i?g.lineTo(X(m),y):g.moveTo(X(m),y); }
+  g.strokeStyle='#e6ebf2'; g.lineWidth=2; g.stroke(); g.restore();
+  const dot=(m,filled)=>{ const y=Y(f(m,t,u)); g.beginPath(); g.arc(X(m),y-7,6,0,7);
+    if(filled){ g.fillStyle='#ffb454'; g.fill(); g.strokeStyle='#141b25'; g.lineWidth=2; g.stroke(); }
+    else { g.fillStyle='#141b25'; g.fill(); g.strokeStyle='#ffb454'; g.lineWidth=2; g.stroke(); } };
+  const coex=M.mo!==null&&M.zeroMin&&Math.abs(f(M.mo,t,u))<1e-7;
+  if(M.mo!==null){ const eq=M.m>0||coex; dot(M.mo,eq); dot(-M.mo,eq); }
+  if(M.zeroMin) dot(0,M.m===0||coex);
+  g.fillStyle='#e6ebf2'; g.textAlign='left'; g.textBaseline='top'; g.fillText('free energy f(m)',8,8);
+  g.fillStyle='#8e9bb0'; g.textAlign='right'; g.fillText('order parameter m',w-8,8);
+}
+function drawOrder(M){
+  const [g,w,h]=setup(ordC), L=34, R=12, Tp=28, B=30, mhi=1.4;
+  const X=v=>L+(v+TMAX)/(2*TMAX)*(w-L-R), Y=v=>Tp+(mhi-v)/mhi*(h-Tp-B);
+  g.textAlign='right'; g.textBaseline='middle';
+  for(const v of [0,0.5,1]){ g.strokeStyle='rgba(142,155,176,.18)'; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(w-R,Y(v)); g.stroke(); g.fillStyle='#8e9bb0'; g.fillText(v+'',L-6,Y(v)); }
+  g.textAlign='center'; g.textBaseline='top';
+  for(const v of [-0.6,-0.3,0,0.3,0.6]){ g.strokeStyle='rgba(142,155,176,.18)'; g.beginPath(); g.moveTo(X(v),Tp); g.lineTo(X(v),h-B); g.stroke(); g.fillStyle='#8e9bb0'; g.fillText(tk(v),X(v),h-B+5); }
+  /* metastable branches, dashed */
+  g.setLineDash([4,3]); g.strokeStyle='rgba(255,180,84,.55)'; g.lineWidth=1.5;
+  if(u<0){ const ts=3*u*u/16, sp=u*u/4;
+    g.beginPath(); for(let i=0;i<=60;i++){ const tv=ts+(sp-ts)*i/60, m=minima(Math.min(tv,sp-1e-9),u).mo||Math.sqrt(-u/2); i?g.lineTo(X(tv),Y(m)):g.moveTo(X(tv),Y(m)); } g.stroke();
+    g.beginPath(); g.moveTo(X(0),Y(0)); g.lineTo(X(ts),Y(0)); g.stroke(); }
+  g.setLineDash([]);
+  /* equilibrium branch: drawn point to point so a first-order jump shows as a vertical step */
+  g.beginPath(); for(let i=0;i<=600;i++){ const tv=-TMAX+i/600*2*TMAX, y=Y(minima(tv,u).m); i?g.lineTo(X(tv),y):g.moveTo(X(tv),y); }
+  g.strokeStyle='#ffb454'; g.lineWidth=2.2; g.stroke();
+  g.setLineDash([3,4]); g.strokeStyle='rgba(230,235,242,.4)'; g.lineWidth=1; g.beginPath(); g.moveTo(X(t),Tp); g.lineTo(X(t),h-B); g.stroke(); g.setLineDash([]);
+  g.beginPath(); g.arc(X(t),Y(M.m),5.5,0,7); g.fillStyle='#ffb454'; g.fill(); g.strokeStyle='#141b25'; g.lineWidth=2; g.stroke();
+  g.fillStyle='#e6ebf2'; g.textAlign='left'; g.textBaseline='top'; g.fillText('equilibrium |m| at this u',8,7);
+  g.fillStyle='#8e9bb0'; g.textAlign='right'; g.fillText('t',w-8,h-14);
+}
+let PH=null;   // phase-diagram geometry, for pointer mapping
+function drawPhase(){
+  const [g,w,h]=setup(phC), L=38, R=12, Tp=28, B=30;
+  const X=v=>L+(v+UMAX)/(2*UMAX)*(w-L-R), Y=v=>Tp+(TMAX-v)/(2*TMAX)*(h-Tp-B); PH={L,R,Tp,B,w,h};
+  g.textAlign='right'; g.textBaseline='middle';
+  for(const v of [-0.6,-0.3,0,0.3,0.6]){ g.strokeStyle='rgba(142,155,176,.14)'; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(w-R,Y(v)); g.stroke(); g.fillStyle='#8e9bb0'; g.fillText(tk(v),L-6,Y(v)); }
+  g.textAlign='center'; g.textBaseline='top';
+  for(const v of [-1,0,1]){ g.strokeStyle='rgba(142,155,176,.14)'; g.beginPath(); g.moveTo(X(v),Tp); g.lineTo(X(v),h-B); g.stroke(); g.fillStyle='#8e9bb0'; g.fillText(tk(v),X(v),h-B+5); }
+  /* coexistence region between the spinodals, u < 0 */
+  g.beginPath(); g.moveTo(X(0),Y(0)); for(let i=0;i<=60;i++){ const uv=-UMAX*i/60; g.lineTo(X(uv),Y(uv*uv/4)); } g.lineTo(X(-UMAX),Y(0)); g.closePath(); g.fillStyle='rgba(255,122,107,.09)'; g.fill();
+  g.setLineDash([3,3]); g.strokeStyle='rgba(255,122,107,.55)'; g.lineWidth=1;
+  g.beginPath(); for(let i=0;i<=60;i++){ const uv=-UMAX*i/60; i?g.lineTo(X(uv),Y(uv*uv/4)):g.moveTo(X(uv),Y(0)); } g.stroke();
+  g.beginPath(); g.moveTo(X(0),Y(0)); g.lineTo(X(-UMAX),Y(0)); g.stroke(); g.setLineDash([]);
+  /* first-order line and continuous line */
+  g.beginPath(); for(let i=0;i<=60;i++){ const uv=-UMAX*i/60, y=Y(3*uv*uv/16); i?g.lineTo(X(uv),y):g.moveTo(X(uv),y); } g.strokeStyle='#ff7a6b'; g.lineWidth=2.4; g.stroke();
+  g.beginPath(); g.moveTo(X(0),Y(0)); g.lineTo(X(UMAX),Y(0)); g.strokeStyle='#4aa8ff'; g.lineWidth=2.4; g.stroke();
+  g.beginPath(); g.arc(X(0),Y(0),4.5,0,7); g.fillStyle='#e6ebf2'; g.fill();
+  /* labels */
+  g.textBaseline='middle'; g.textAlign='center';
+  g.fillStyle='#8e9bb0'; g.fillText('disordered, m = 0',X(0.2),Y(0.42)); g.fillText('ordered, m ≠ 0',X(0.2),Y(-0.4));
+  g.fillStyle='#4aa8ff'; g.fillText('continuous',X(0.72),Y(0)-10);
+  g.fillStyle='#ff7a6b'; g.textAlign='left'; g.fillText('first order',X(-1.15),Y(0.47));
+  g.fillStyle='#e6ebf2'; g.textAlign='left'; g.fillText('tricritical',X(0)+8,Y(0)+12);
+  /* current point and the cooling path through it */
+  g.setLineDash([3,4]); g.strokeStyle='rgba(255,180,84,.5)'; g.lineWidth=1; g.beginPath(); g.moveTo(X(u),Tp); g.lineTo(X(u),h-B); g.stroke(); g.setLineDash([]);
+  g.beginPath(); g.arc(X(u),Y(t),6,0,7); g.fillStyle='#ffb454'; g.fill(); g.strokeStyle='#141b25'; g.lineWidth=2; g.stroke();
+  g.fillStyle='#e6ebf2'; g.textAlign='left'; g.textBaseline='top'; g.fillText('phase diagram: t (vertical) vs u.  Drag the dot.',8,7);
+  g.fillStyle='#8e9bb0'; g.textAlign='right'; g.fillText('u',w-8,h-14);
+}
+function status(M){
+  let s; const coex=M.mo!==null&&M.zeroMin&&Math.abs(f(M.mo,t,u))<1e-7;
+  if(coex) s='Coexistence: m = <b>0</b> and m = <b>±'+M.mo.toFixed(3)+'</b> have the same free energy';
+  else if(M.m>0) s='Ordered: m = <b>±'+M.m.toFixed(3)+'</b>'+(M.zeroMin?', with a metastable disordered state at m = 0':'');
+  else s='Disordered: m = <b>0</b>'+(M.mo!==null?', with a metastable ordered state at m = ±'+M.mo.toFixed(3):'');
+  let k;
+  if(u>0.005) k='u &gt; 0: continuous transition at t = 0, m ∝ (−t)^½';
+  else if(u<-0.005) k='u &lt; 0: first-order transition at t* = <b>'+(3*u*u/16).toFixed(3)+'</b>, where m jumps by <b>'+Math.sqrt(-3*u/4).toFixed(3)+'</b>';
+  else k='u = 0: tricritical point, m = (−t)^¼';
+  $('status').innerHTML=s+' · '+k;
+}
+function render(){
+  const M=minima(t,u);
+  $('o_t').textContent=(t<0?'−':'')+Math.abs(t).toFixed(3); $('o_u').textContent=fmt(u);
+  drawLand(M); drawOrder(M); drawPhase(); status(M);
+}
+
+/* ---------- controls ---------- */
+function set(tv,uv,fromSlider){ t=Math.max(-TMAX,Math.min(TMAX,tv)); u=Math.max(-UMAX,Math.min(UMAX,uv)); if(!fromSlider){ $('t').value=t; $('u').value=u; } render(); }
+function stopAnim(){ if(anim){ cancelAnimationFrame(anim); anim=0; $('cool').textContent='Cool through the transition'; } }
+$('t').addEventListener('input',e=>{ stopAnim(); set(+e.target.value,u,true); });
+$('u').addEventListener('input',e=>{ stopAnim(); set(t,+e.target.value,true); });
+document.querySelectorAll('[data-u]').forEach(b=>b.addEventListener('click',()=>{ stopAnim(); set(+b.dataset.t,+b.dataset.u); }));
+$('cool').addEventListener('click',()=>{
+  if(anim){ stopAnim(); return; }
+  $('cool').textContent='Stop'; let start=null; const from=0.5, to=-0.5, dur=7000;
+  const step=now=>{ if(start===null) start=now; const q=Math.min(1,(now-start)/dur); set(from+(to-from)*q,u);
+    if(q<1) anim=requestAnimationFrame(step); else { anim=0; $('cool').textContent='Cool through the transition'; } };
+  anim=requestAnimationFrame(step);
+});
+/* drag on the phase diagram */
+let dragging=false;
+function pick(e){ if(!PH) return; const b=phC.getBoundingClientRect(), x=e.clientX-b.left, y=e.clientY-b.top;
+  set(TMAX-(y-PH.Tp)/(PH.h-PH.Tp-PH.B)*2*TMAX, -UMAX+(x-PH.L)/(PH.w-PH.L-PH.R)*2*UMAX); }
+phC.addEventListener('pointerdown',e=>{ stopAnim(); dragging=true; phC.setPointerCapture(e.pointerId); pick(e); });
+phC.addEventListener('pointermove',e=>{ if(dragging) pick(e); });
+const end=()=>{ dragging=false; }; phC.addEventListener('pointerup',end); phC.addEventListener('pointercancel',end);
+window.addEventListener('resize',render);
+render();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(render);
+</script>
+</body>
+</html>

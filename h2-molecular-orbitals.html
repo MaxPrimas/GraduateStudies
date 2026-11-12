@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>H₂ Molecular Orbitals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: the orbital as a map with its cut along the bond directly under it (same x axis), then the energy curve that the separation slider moves along, then the knobs. */
+:root{
+  color-scheme: dark;
+  --bg:#0c1118;
+  --panel:#141b25;
+  --line:#263142;
+  --ink:#e6ebf2;
+  --muted:#8e9bb0;
+  --crest:#ffb454;   /* positive wavefunction, bonding, accent */
+  --trough:#4aa8ff;  /* negative wavefunction, antibonding */
+  --display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.45}
+main{max-width:820px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:14px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:62ch}
+.back{font:400 13px var(--mono);color:var(--muted);text-decoration:none}
+.back:hover{color:var(--ink)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:500 14px var(--display);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 12px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--crest);outline-offset:2px}
+button[aria-pressed="true"]{border-color:var(--crest);color:var(--crest)}
+.seg{display:flex}
+.seg button{border-radius:0}
+.seg button:first-child{border-radius:4px 0 0 4px}
+.seg button:last-child{border-radius:0 4px 4px 0;border-left:0}
+.bench{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#070a0f}
+canvas{display:block;width:100%}
+#map{aspect-ratio:2/1}
+#cut{height:170px;border-top:1px solid var(--line);background:var(--panel)}
+#energy{height:250px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.status{font:400 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.status b{color:var(--ink);font-weight:500}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{font-size:13px;padding:6px 10px;border-radius:999px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.row label{font-size:14px}
+.row output{font:500 13px var(--mono);color:var(--crest);font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--crest);margin:4px 0 0}
+.hint{grid-column:1/-1;font-size:12px;color:var(--muted)}
+details{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--panel)}
+summary{cursor:pointer;font-weight:500}
+details p{color:var(--muted);margin-top:10px;max-width:65ch}
+.eq{font:400 13px var(--mono);color:var(--ink);background:var(--bg);border-radius:4px;padding:10px;margin-top:10px;overflow-x:auto;white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="index.html">&larr; all demos</a>
+  <header>
+    <h1>H₂ Molecular Orbitals</h1>
+    <p class="lede">Bring two hydrogen 1s orbitals together and they combine in two ways. Added, they pile electron density between the protons and lower the energy: a bond. Subtracted, they leave a node there and raise it.</p>
+  </header>
+
+  <div class="bar">
+    <div class="seg" role="group" aria-label="Which orbital">
+      <button id="bBond" type="button" aria-pressed="true">Bonding ψ₊</button>
+      <button id="bAnti" type="button" aria-pressed="false">Antibonding ψ₋</button>
+    </div>
+    <div class="seg" role="group" aria-label="What to show">
+      <button id="bPsi" type="button" aria-pressed="true">Wavefunction ψ</button>
+      <button id="bDen" type="button" aria-pressed="false">Density |ψ|²</button>
+    </div>
+  </div>
+
+  <div class="bench">
+    <canvas id="map" aria-label="Map of the molecular orbital in a plane containing both protons"></canvas>
+    <canvas id="cut" aria-label="The orbital along the line through both protons"></canvas>
+  </div>
+  <p class="status" id="status"></p>
+
+  <canvas id="energy" aria-label="Energy of the bonding and antibonding states versus proton separation"></canvas>
+
+  <div class="chips" aria-label="Presets">
+    <button type="button" data-r="6">Far apart (6 a₀)</button>
+    <button type="button" data-r="2.49">Bottom of the bonding curve (2.49 a₀)</button>
+    <button type="button" data-r="1.4">H₂ bond length (1.40 a₀)</button>
+    <button type="button" data-r="0.7">Squeezed (0.7 a₀)</button>
+  </div>
+
+  <div class="card">
+    <h2>Geometry</h2>
+    <div class="row"><label for="R">Proton separation R</label><output id="o_R"></output>
+      <input id="R" type="range" min="0.5" max="8" step="0.01" value="2.49">
+      <span class="hint">In Bohr radii. 1 a₀ = 0.529 Å.</span></div>
+  </div>
+
+  <details>
+    <summary>What is being computed</summary>
+    <p>This is the linear-combination-of-atomic-orbitals (LCAO) picture with one 1s orbital on each proton, φ = e^(−r/a₀)/√(πa₀³):</p>
+    <div class="eq">ψ± = (φ₁ ± φ₂) / √(2(1 ± S))</div>
+    <p>Everything follows from three integrals, all known in closed form (atomic units, R in a₀, energies in hartree):</p>
+    <div class="eq">overlap    S = ⟨φ₁|φ₂⟩        = e^(−R) (1 + R + R²/3)</div>
+    <div class="eq">Coulomb    J = ⟨φ₁|−1/r₂|φ₁⟩  = −(1/R) [1 − (1 + R) e^(−2R)]</div>
+    <div class="eq">resonance  K = ⟨φ₁|−1/r₁|φ₂⟩  = −(1 + R) e^(−R)</div>
+    <div class="eq">E±(R) = E₁ₛ + (J ± K)/(1 ± S) + 1/R</div>
+    <p>The last term is the repulsion between the protons. The energies are for a single electron shared by the two protons, which is the H₂⁺ ion: the one-electron problem that the H₂ bond is built from. In this approximation the bonding curve bottoms out at R = 2.49 a₀, 1.76 eV below a separated atom and proton. The exact H₂⁺ answer is 2.00 a₀ and 2.79 eV, so the simple picture gets the bond but underestimates it.</p>
+    <p>Neutral H₂ puts two electrons in ψ₊. Their mutual repulsion is not included here, which is why the real H₂ bond length (1.40 a₀) is not the minimum of this curve. The antibonding curve has no minimum at all: an electron in ψ₋ pushes the protons apart.</p>
+  </details>
+</main>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const HA=27.2114, XMAX=6.5, YMAX=3.25, NX=260, NY=130, SQPI=Math.sqrt(Math.PI);
+const mapC=$('map'), cutC=$('cut'), enC=$('energy');
+const off=document.createElement('canvas'); off.width=NX; off.height=NY;
+const octx=off.getContext('2d'), img=octx.createImageData(NX,NY), px=new Uint32Array(img.data.buffer);
+let R=2.49, anti=false, dens=false;
+
+/* ---------- physics (atomic units) ---------- */
+const S=R=>Math.exp(-R)*(1+R+R*R/3);
+const J=R=>-(1/R)*(1-(1+R)*Math.exp(-2*R));
+const K=R=>-(1+R)*Math.exp(-R);
+/* total energy relative to a separated H atom and proton, in hartree */
+const Ebond=R=>(J(R)+K(R))/(1+S(R))+1/R;
+const Eanti=R=>(J(R)-K(R))/(1-S(R))+1/R;
+function psi(x,y,R,anti){
+  const p1=Math.exp(-Math.hypot(x+R/2,y))/SQPI, p2=Math.exp(-Math.hypot(x-R/2,y))/SQPI, s=S(R);
+  return anti ? (p1-p2)/Math.sqrt(2*(1-s)) : (p1+p2)/Math.sqrt(2*(1+s));
+}
+
+/* ---------- colour tables, packed ABGR ---------- */
+function lut(stops){ const u=new Uint32Array(256);
+  for(let i=0;i<256;i++){ const q=i/255; let k=0; while(k<stops.length-2 && q>stops[k+1][0]) k++;
+    const a=stops[k], b=stops[k+1], f=Math.min(1,Math.max(0,(q-a[0])/(b[0]-a[0])));
+    u[i]=(255<<24)|((a[3]+(b[3]-a[3])*f)<<16)|((a[2]+(b[2]-a[2])*f)<<8)|(a[1]+(b[1]-a[1])*f); } return u; }
+const LUT_WAVE=lut([[0,214,236,255],[.22,74,168,255],[.5,7,10,15],[.78,255,180,84],[1,255,243,220]]);
+const LUT_INT =lut([[0,7,10,15],[.3,52,44,110],[.62,214,110,60],[.85,255,190,90],[1,255,246,226]]);
+
+/* ---------- drawing ---------- */
+function setup(c){
+  const dpr=Math.min(2,window.devicePixelRatio||1), b=c.getBoundingClientRect(), w=Math.round(b.width*dpr), h=Math.round(b.height*dpr);
+  if(c.width!==w||c.height!==h){ c.width=w; c.height=h; }
+  const g=c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,b.width,b.height);
+  g.font='11px "IBM Plex Mono",monospace'; g.lineWidth=1; return [g,b.width,b.height];
+}
+function drawMap(){
+  const REF=0.5642;   // largest value ψ can take (R → 0), used to fix the colour scale
+  for(let iy=0;iy<NY;iy++){ const y=YMAX-(iy+.5)/NY*2*YMAX;
+    for(let ix=0;ix<NX;ix++){ const x=-XMAX+(ix+.5)/NX*2*XMAX, v=psi(x,y,R,anti)/REF, a=Math.min(1,Math.pow(Math.abs(v),.6));
+      px[iy*NX+ix]= dens ? LUT_INT[(255*a)|0] : LUT_WAVE[(128+127*(v<0?-a:a))|0]; } }
+  octx.putImageData(img,0,0);
+  const [g,w,h]=setup(mapC); g.imageSmoothingEnabled=true; g.drawImage(off,0,0,w,h);
+  const X=x=>(x+XMAX)/(2*XMAX)*w, cy=h/2;
+  for(const [x,name] of [[-R/2,'p₁'],[R/2,'p₂']]){
+    g.beginPath(); g.arc(X(x),cy,4,0,7); g.fillStyle='#fff'; g.fill(); g.strokeStyle='#070a0f'; g.lineWidth=1.5; g.stroke(); }
+  /* separation marker */
+  g.strokeStyle='rgba(230,235,242,.7)'; g.lineWidth=1; const yb=h-22;
+  g.beginPath(); g.moveTo(X(-R/2),yb-4); g.lineTo(X(-R/2),yb+4); g.moveTo(X(-R/2),yb); g.lineTo(X(R/2),yb); g.moveTo(X(R/2),yb-4); g.lineTo(X(R/2),yb+4); g.stroke();
+  const tag=(txt,x,y,al)=>{ g.textAlign=al; g.textBaseline='middle'; const wd=g.measureText(txt).width+10, x0=al==='left'?x-5:al==='center'?x-wd/2:x-wd+5;
+    g.fillStyle='rgba(7,10,15,.72)'; g.fillRect(x0,y-9,wd,18); g.fillStyle='#e6ebf2'; g.fillText(txt,x,y); };
+  tag('R = '+R.toFixed(2)+' a₀',w/2,yb-13,'center');
+  tag(dens?'|ψ|² in the plane of the protons':'ψ in the plane of the protons:  amber +, blue −',10,16,'left');
+}
+function drawCut(){
+  const [g,w,h]=setup(cutC), Tp=24, B=22, s=S(R), c=anti?1/Math.sqrt(2*(1-s)):1/Math.sqrt(2*(1+s));
+  const X=x=>(x+XMAX)/(2*XMAX)*w;
+  const lo=dens?0:-0.5, hi=dens?0.34:0.5, Y=v=>Tp+(hi-Math.max(lo,Math.min(hi,v)))/(hi-lo)*(h-Tp-B);
+  g.strokeStyle='rgba(142,155,176,.3)'; g.beginPath(); g.moveTo(0,Y(0)); g.lineTo(w,Y(0)); g.stroke();
+  g.setLineDash([3,4]); g.strokeStyle='rgba(230,235,242,.35)';
+  for(const x of [-R/2,R/2]){ g.beginPath(); g.moveTo(X(x),Tp); g.lineTo(X(x),h-B); g.stroke(); } g.setLineDash([]);
+  const curve=(fn,style,lw,dash)=>{ g.beginPath(); for(let i=0;i<=520;i++){ const x=-XMAX+i/520*2*XMAX, y=Y(fn(x)); i?g.lineTo(X(x),y):g.moveTo(X(x),y); }
+    g.strokeStyle=style; g.lineWidth=lw; g.setLineDash(dash||[]); g.stroke(); g.setLineDash([]); };
+  if(!dens){ /* the two atomic pieces, with their weights and signs */
+    curve(x=>c*Math.exp(-Math.abs(x+R/2))/SQPI,'rgba(142,155,176,.8)',1.2,[4,3]);
+    curve(x=>(anti?-c:c)*Math.exp(-Math.abs(x-R/2))/SQPI,'rgba(142,155,176,.8)',1.2,[4,3]); }
+  curve(x=>{ const v=psi(x,0,R,anti); return dens?v*v:v; },anti?'#4aa8ff':'#ffb454',2.2);
+  g.fillStyle='#8e9bb0'; g.textAlign='center'; g.textBaseline='top';
+  for(let x=-6;x<=6;x+=2) g.fillText(x+'',X(x),h-B+5);
+  g.fillStyle='#e6ebf2'; g.textAlign='left';
+  g.fillText(dens?'|ψ|² along the bond axis':'ψ along the bond axis  (dashed: the two 1s pieces)',8,6);
+  g.fillStyle='#8e9bb0'; g.textAlign='right'; g.fillText('x / a₀',w-8,6);
+}
+function drawEnergy(){
+  const [g,w,h]=setup(enC), L=46, Rm=92, Tp=28, B=30, r0=0.5, r1=8, lo=-3, hi=8;
+  const X=r=>L+(r-r0)/(r1-r0)*(w-L-Rm), Y=v=>Tp+(hi-v)/(hi-lo)*(h-Tp-B);
+  g.textAlign='right'; g.textBaseline='middle';
+  for(let v=-2;v<=8;v+=2){ g.strokeStyle=v===0?'rgba(230,235,242,.45)':'rgba(142,155,176,.18)'; g.setLineDash(v===0?[6,4]:[]);
+    g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(w-Rm,Y(v)); g.stroke(); g.setLineDash([]); g.fillStyle='#8e9bb0'; g.fillText(v+'',L-6,Y(v)); }
+  g.textAlign='center'; g.textBaseline='top';
+  for(let r=1;r<=8;r++){ g.fillStyle='#8e9bb0'; g.fillText(r+'',X(r),h-B+5); }
+  g.save(); g.beginPath(); g.rect(L,Tp,w-L-Rm,h-Tp-B); g.clip();
+  const curve=(fn,col)=>{ g.beginPath(); for(let i=0;i<=400;i++){ const r=r0+i/400*(r1-r0), y=Y(fn(r)*HA); i?g.lineTo(X(r),y):g.moveTo(X(r),y); } g.strokeStyle=col; g.lineWidth=2; g.stroke(); };
+  curve(Eanti,'#4aa8ff'); curve(Ebond,'#ffb454');
+  g.setLineDash([3,4]); g.strokeStyle='rgba(230,235,242,.4)'; g.lineWidth=1; g.beginPath(); g.moveTo(X(R),Tp); g.lineTo(X(R),h-B); g.stroke(); g.setLineDash([]);
+  g.restore();
+  for(const [fn,col,on] of [[Eanti,'#4aa8ff',anti],[Ebond,'#ffb454',!anti]]){ const v=fn(R)*HA; if(v>hi) continue;
+    g.beginPath(); g.arc(X(R),Y(v),on?6:4,0,7); g.fillStyle=col; g.fill(); g.strokeStyle='#141b25'; g.lineWidth=2; g.stroke(); }
+  /* direct labels at the right-hand end of each curve */
+  g.textAlign='left'; g.textBaseline='middle';
+  g.fillStyle='#4aa8ff'; g.fillText('antibonding',w-Rm+6,Y(Eanti(r1)*HA)-8);
+  g.fillStyle='#ffb454'; g.fillText('bonding',w-Rm+6,Y(Ebond(r1)*HA)+8);
+  g.fillStyle='#e6ebf2'; g.textAlign='left'; g.textBaseline='top'; g.fillText('energy (eV) relative to a separated atom and proton',8,7);
+  g.fillStyle='#8e9bb0'; g.textAlign='right'; g.fillText('R / a₀',w-Rm,h-14);
+}
+function status(){
+  const f=v=>(v<0?'−':'+')+Math.abs(v).toFixed(2), eb=Ebond(R)*HA, ea=Eanti(R)*HA;
+  $('status').innerHTML='overlap S = <b>'+S(R).toFixed(3)+'</b> · bonding <b>'+f(eb)+' eV</b> · antibonding <b>'+f(ea)+' eV</b> · splitting <b>'+(ea-eb).toFixed(2)+' eV</b> · '
+    +(eb<0?'the bonding state is bound at this separation':'even the bonding state is unbound here: the protons are too close');
+}
+function render(){ $('o_R').textContent=R.toFixed(2)+' a₀  ('+(R*0.529177).toFixed(2)+' Å)'; drawMap(); drawCut(); drawEnergy(); status(); }
+
+/* ---------- controls ---------- */
+$('R').addEventListener('input',e=>{ R=+e.target.value; render(); });
+function setOrb(a){ anti=a; $('bBond').setAttribute('aria-pressed',!a); $('bAnti').setAttribute('aria-pressed',a); render(); }
+function setMode(d){ dens=d; $('bPsi').setAttribute('aria-pressed',!d); $('bDen').setAttribute('aria-pressed',d); render(); }
+$('bBond').addEventListener('click',()=>setOrb(false)); $('bAnti').addEventListener('click',()=>setOrb(true));
+$('bPsi').addEventListener('click',()=>setMode(false)); $('bDen').addEventListener('click',()=>setMode(true));
+document.querySelectorAll('[data-r]').forEach(b=>b.addEventListener('click',()=>{ R=+b.dataset.r; $('R').value=R; render(); }));
+window.addEventListener('resize',render);
+render();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(render);
+</script>
+</body>
+</html>
