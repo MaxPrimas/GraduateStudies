@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>1D Ising Chain</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: the chain's history on top (one row per Monte Carlo sweep, newest first), then two plots that compare the running averages with the exact transfer-matrix results, then the knobs. */
+:root{
+  color-scheme: dark;
+  --bg:#0c1118;
+  --panel:#141b25;
+  --line:#263142;
+  --ink:#e6ebf2;
+  --muted:#8e9bb0;
+  --crest:#ffb454;   /* spin up, accent */
+  --trough:#4aa8ff;  /* exact curves */
+  --down:#1b3a5c;    /* spin down */
+  --warn:#ff7a6b;
+  --display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.45}
+main{max-width:820px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:14px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:62ch}
+.back{font:400 13px var(--mono);color:var(--muted);text-decoration:none}
+.back:hover{color:var(--ink)}
+.stage{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#070a0f}
+#hist{display:block;width:100%;height:300px;image-rendering:pixelated;image-rendering:crisp-edges}
+.stage .tip{position:absolute;left:8px;bottom:6px;font:400 11px var(--mono);color:var(--ink);background:rgba(7,10,15,.72);padding:2px 6px;border-radius:3px;pointer-events:none}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font:400 12px var(--mono);color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:500 14px var(--display);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 12px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--crest);outline-offset:2px}
+button.primary{background:var(--crest);border-color:var(--crest);color:#1a1205}
+.plots{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.plots canvas{display:block;width:100%;height:210px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+@media (max-width:600px){.plots{grid-template-columns:1fr}}
+.status{font:400 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.status b{color:var(--ink);font-weight:500}
+.status .err{color:var(--warn)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.row label{font-size:14px}
+.row output{font:500 13px var(--mono);color:var(--crest);font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--crest);margin:4px 0 0}
+.hint{grid-column:1/-1;font-size:12px;color:var(--muted)}
+details{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--panel)}
+summary{cursor:pointer;font-weight:500}
+details p{color:var(--muted);margin-top:10px;max-width:65ch}
+.eq{font:400 13px var(--mono);color:var(--ink);background:var(--bg);border-radius:4px;padding:10px;margin-top:10px;overflow-x:auto;white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="index.html">&larr; all demos</a>
+  <header>
+    <h1>1D Ising Chain</h1>
+    <p class="lede">200 spins on a ring, each coupled to its two neighbours and to a field. Cool the chain and the domains grow, but at any temperature above zero they never lock into one: there is no phase transition in one dimension.</p>
+  </header>
+
+  <div class="bar">
+    <button id="play" class="primary" type="button">Pause</button>
+    <button id="rand" type="button">Randomise spins</button>
+    <button id="allup" type="button">All spins up</button>
+  </div>
+
+  <div class="stage">
+    <canvas id="hist" width="200" height="150" aria-label="History of the spin chain, one row per Monte Carlo sweep, newest at the top"></canvas>
+    <span class="tip">position along the chain &rarr; · time &darr; (newest sweep at the top)</span>
+  </div>
+  <div class="legend">
+    <span><i style="background:var(--crest)"></i>spin up</span>
+    <span><i style="background:var(--down)"></i>spin down</span>
+    <span><i style="background:var(--trough)"></i>exact result (infinite chain)</span>
+    <span><i style="background:var(--ink);border-radius:50%"></i>measured in this run</span>
+  </div>
+  <p class="status" id="status"></p>
+
+  <div class="plots">
+    <canvas id="mh" aria-label="Magnetisation versus field: exact curve and measured point"></canvas>
+    <canvas id="corr" aria-label="Spin correlation versus separation: exact curve and measured points"></canvas>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Temperature</h2>
+      <div class="row"><label for="T">k<sub>B</sub>T / J</label><output id="o_T"></output>
+        <input id="T" type="range" min="0.4" max="5" step="0.05" value="1.5">
+        <span class="hint">Lower it and watch the domains widen.</span></div>
+    </div>
+    <div class="card">
+      <h2>Field</h2>
+      <div class="row"><label for="h">h / J</label><output id="o_h"></output>
+        <input id="h" type="range" min="-1" max="1" step="0.02" value="0">
+        <span class="hint">Positive h favours spin up.</span></div>
+    </div>
+    <div class="card">
+      <h2>Speed</h2>
+      <div class="row"><label for="speed">Sweeps per second</label><output id="o_speed"></output>
+        <input id="speed" type="range" min="2" max="120" step="2" value="30"></div>
+    </div>
+  </div>
+
+  <details>
+    <summary>What is being computed</summary>
+    <p>Energy of a configuration, with periodic boundaries and s = ±1:</p>
+    <div class="eq">H = −J Σ sᵢ sᵢ₊₁ − h Σ sᵢ</div>
+    <p>The simulation is single-spin-flip Metropolis Monte Carlo: pick a spin at random, flip it if that lowers the energy, otherwise flip it with probability exp(−ΔE / k<sub>B</sub>T). One sweep is 200 attempted flips.</p>
+    <p>The exact results come from the transfer matrix, whose eigenvalues are</p>
+    <div class="eq">λ± = e^K [ cosh b ± √(sinh² b + e^(−4K)) ],   K = J/k_BT,  b = h/k_BT</div>
+    <div class="eq">m = sinh b / √(sinh² b + e^(−4K))</div>
+    <div class="eq">⟨s₀ sᵣ⟩ − m² = (1 − m²) (λ₋/λ₊)ʳ,   ξ = 1 / ln(λ₊/λ₋)</div>
+    <p>At h = 0 the correlation is tanhʳ K and the density of domain walls is 1/(1 + e^(2K)). The correlation length ξ is finite at every T &gt; 0 and m(h) passes smoothly through zero, so there is no spontaneous magnetisation. ξ diverges only as T &rarr; 0.</p>
+    <p>The measured values are running averages since the last change of T or h. They take longer to settle at low temperature, where the domain walls move slowly, and they drift from the exact curve once ξ approaches the length of the chain.</p>
+  </details>
+</main>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const N=200, ROWS=150, RMAX=40;
+const UP=(255<<24)|(0x54<<16)|(0xb4<<8)|0xff, DOWN=(255<<24)|(0x5c<<16)|(0x3a<<8)|0x1b;   // packed ABGR
+const histC=$('hist'), hctx=histC.getContext('2d'), himg=hctx.createImageData(N,ROWS), hpx=new Uint32Array(himg.data.buffer);
+const mhC=$('mh'), corrC=$('corr');
+let s=new Int8Array(N), T=1.5, h=0, speed=30, acc=0, last=0;
+let playing=!matchMedia('(prefers-reduced-motion: reduce)').matches;
+let cnt=0, sumM=0, sumB=0, C=new Float64Array(RMAX+1);
+
+/* ---------- physics ---------- */
+function sweep(){
+  for(let n=0;n<N;n++){
+    const i=(Math.random()*N)|0, nb=s[i?i-1:N-1]+s[i===N-1?0:i+1], dE=2*s[i]*(nb+h);
+    if(dE<=0||Math.random()<Math.exp(-dE/T)) s[i]=-s[i];
+  }
+}
+function measure(){
+  let m=0,b=0; for(let i=0;i<N;i++){ m+=s[i]; b+=s[i]*s[i===N-1?0:i+1]; }
+  sumM+=m/N; sumB+=b/N;
+  for(let r=1;r<=RMAX;r++){ let c=0; for(let i=0;i<N;i++){ const j=i+r; c+=s[i]*s[j<N?j:j-N]; } C[r]+=c/N; }
+  cnt++;
+}
+function resetStats(){ cnt=0; sumM=0; sumB=0; C.fill(0); }
+/* exact, infinite chain */
+function exact(T,h){
+  const K=1/T, b=h/T, sh=Math.sinh(b), root=Math.sqrt(sh*sh+Math.exp(-4*K));
+  const m=sh/root, ratio=(Math.cosh(b)-root)/(Math.cosh(b)+root);
+  return {m, ratio, xi:-1/Math.log(ratio), nn:m*m+(1-m*m)*ratio};
+}
+
+/* ---------- drawing ---------- */
+function pushRow(){ hpx.copyWithin(N,0,N*(ROWS-1)); for(let i=0;i<N;i++) hpx[i]=s[i]>0?UP:DOWN; }
+function fillHistory(){ for(let r=0;r<ROWS;r++) for(let i=0;i<N;i++) hpx[r*N+i]=s[i]>0?UP:DOWN; }
+function setup(c){
+  const dpr=Math.min(2,window.devicePixelRatio||1), r=c.getBoundingClientRect(), w=Math.round(r.width*dpr), hh=Math.round(r.height*dpr);
+  if(c.width!==w||c.height!==hh){ c.width=w; c.height=hh; }
+  const g=c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,r.width,r.height);
+  g.font='11px "IBM Plex Mono",monospace'; g.lineWidth=1; return [g,r.width,r.height];
+}
+function frameAxes(g,X,Y,xt,yt,title,xlabel,w,H){
+  g.strokeStyle='rgba(142,155,176,.18)'; g.fillStyle='#8e9bb0';
+  g.textAlign='right'; g.textBaseline='middle';
+  for(const v of yt){ g.beginPath(); g.moveTo(X.a,Y(v)); g.lineTo(X.b,Y(v)); g.stroke(); g.fillText(v+'',X.a-6,Y(v)); }
+  g.textAlign='center'; g.textBaseline='top';
+  for(const v of xt){ g.beginPath(); g.moveTo(X(v),Y.a); g.lineTo(X(v),Y.b); g.stroke(); g.fillText(v+'',X(v),Y.b+5); }
+  g.fillStyle='#e6ebf2'; g.textAlign='left'; g.textBaseline='top'; g.fillText(title,8,7);
+  g.fillStyle='#8e9bb0'; g.textAlign='right'; g.fillText(xlabel,w-8,H-14);
+}
+function drawMH(ex){
+  const [g,w,H]=setup(mhC), L=34,R=12,Tp=28,B=30;
+  const X=v=>L+(v+1)/2*(w-L-R), Y=v=>Tp+(1-v)/2*(H-Tp-B); X.a=L; X.b=w-R; Y.a=Tp; Y.b=H-B;
+  frameAxes(g,X,Y,[-1,-0.5,0,0.5,1],[-1,0,1],'magnetisation m','field h / J',w,H);
+  g.beginPath(); for(let i=0;i<=200;i++){ const hv=-1+i/100, y=Y(exact(T,hv).m); i?g.lineTo(X(hv),y):g.moveTo(X(hv),y); }
+  g.strokeStyle='#4aa8ff'; g.lineWidth=2; g.stroke();
+  g.setLineDash([3,4]); g.strokeStyle='rgba(230,235,242,.4)'; g.lineWidth=1; g.beginPath(); g.moveTo(X(h),Y.a); g.lineTo(X(h),Y.b); g.stroke(); g.setLineDash([]);
+  if(cnt){ g.beginPath(); g.arc(X(h),Y(sumM/cnt),5,0,7); g.fillStyle='#e6ebf2'; g.fill(); g.strokeStyle='#141b25'; g.lineWidth=2; g.stroke(); }
+}
+function drawCorr(ex){
+  const [g,w,H]=setup(corrC), L=34,R=12,Tp=28,B=30;
+  const X=v=>L+v/RMAX*(w-L-R), Y=v=>Tp+(1-v)*(H-Tp-B); X.a=L; X.b=w-R; Y.a=Tp; Y.b=H-B;
+  frameAxes(g,X,Y,[0,10,20,30,40],[0,0.5,1],'correlation ⟨s₀sᵣ⟩ − m²','separation r',w,H);
+  const amp=1-ex.m*ex.m;
+  g.beginPath(); for(let i=0;i<=RMAX*4;i++){ const r=i/4, y=Y(amp*Math.pow(ex.ratio,r)); i?g.lineTo(X(r),y):g.moveTo(X(r),y); }
+  g.strokeStyle='#4aa8ff'; g.lineWidth=2; g.stroke();
+  if(cnt){ const m=sumM/cnt; g.fillStyle='#e6ebf2';
+    for(let r=1;r<=RMAX;r++){ const v=Math.max(-.05,Math.min(1,C[r]/cnt-m*m)); g.beginPath(); g.arc(X(r),Y(v),2.4,0,7); g.fill(); } }
+  /* mark the correlation length when it fits */
+  if(ex.xi<RMAX){ g.setLineDash([3,4]); g.strokeStyle='rgba(255,180,84,.7)'; g.lineWidth=1; g.beginPath(); g.moveTo(X(ex.xi),Y.a); g.lineTo(X(ex.xi),Y.b); g.stroke(); g.setLineDash([]);
+    g.fillStyle='#ffb454'; g.textAlign=ex.xi>RMAX*.7?'right':'left'; g.textBaseline='top'; g.fillText('ξ',X(ex.xi)+(ex.xi>RMAX*.7?-5:5),Y.a+2); }
+}
+function status(ex){
+  const walls=(1-ex.nn)/2, f=v=>(v<0?'−':'')+Math.abs(v).toFixed(3);
+  let t='correlation length ξ = <b>'+(ex.xi<1000?ex.xi.toFixed(1):'>1000')+'</b> sites';
+  if(cnt){ t+=' · m: measured <b>'+f(sumM/cnt)+'</b>, exact <b>'+f(ex.m)+'</b> · domain walls per bond: measured <b>'+((1-sumB/cnt)/2).toFixed(3)+'</b>, exact <b>'+walls.toFixed(3)+'</b> · '+cnt+' sweeps averaged'; }
+  if(ex.xi>N/4) t+=' <span class="err">· ξ is comparable to the chain, so expect finite-size drift</span>';
+  $('status').innerHTML=t;
+}
+function render(){
+  hctx.putImageData(himg,0,0);
+  const ex=exact(T,h); drawMH(ex); drawCorr(ex); status(ex);
+}
+
+/* ---------- loop and controls ---------- */
+function frame(now){
+  const dt=Math.min(.1,(now-last)/1000||0); last=now;
+  if(playing){ acc+=speed*dt; let n=Math.min(40,Math.floor(acc)); acc-=Math.floor(acc);
+    if(n){ while(n--){ sweep(); measure(); pushRow(); } render(); } }
+  requestAnimationFrame(frame);
+}
+function sync(){ $('o_T').textContent=T.toFixed(2); $('o_h').textContent=(h<0?'−':'')+Math.abs(h).toFixed(2); $('o_speed').textContent=speed+''; }
+$('T').addEventListener('input',e=>{ T=+e.target.value; resetStats(); sync(); render(); });
+$('h').addEventListener('input',e=>{ h=+e.target.value; resetStats(); sync(); render(); });
+$('speed').addEventListener('input',e=>{ speed=+e.target.value; sync(); });
+function setPlaying(v){ playing=v; $('play').textContent=v?'Pause':'Play'; }
+$('play').addEventListener('click',()=>setPlaying(!playing));
+$('rand').addEventListener('click',()=>{ for(let i=0;i<N;i++) s[i]=Math.random()<.5?1:-1; resetStats(); pushRow(); render(); });
+$('allup').addEventListener('click',()=>{ s.fill(1); resetStats(); pushRow(); render(); });
+window.addEventListener('resize',render);
+
+for(let i=0;i<N;i++) s[i]=Math.random()<.5?1:-1;
+for(let k=0;k<ROWS;k++){ sweep(); pushRow(); }          // start with a filled, equilibrated history
+setPlaying(playing); sync(); render();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(render);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

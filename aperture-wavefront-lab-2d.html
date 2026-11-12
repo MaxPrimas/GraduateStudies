@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aperture Wavefront Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: one optical bench read top to bottom: source, S, screen, then the screen trace, then the knobs. Single dark theme by choice: the field is light on dark. */
+:root{
+  color-scheme: dark;
+  --bg:#0c1118;
+  --panel:#141b25;
+  --line:#263142;
+  --ink:#e6ebf2;
+  --muted:#8e9bb0;
+  --crest:#ffb454;   /* positive field, accent */
+  --trough:#4aa8ff;  /* negative field */
+  --warn:#ff7a6b;
+  --display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.45}
+main{max-width:760px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:16px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:62ch}
+.bench{display:flex;flex-direction:column;gap:0;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#070a0f}
+canvas{display:block;width:100%}
+#screen{height:170px;border-top:1px solid var(--line);background:var(--panel)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:500 14px var(--display);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 12px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--crest);outline-offset:2px}
+button.primary{background:var(--crest);border-color:var(--crest);color:#1a1205}
+button[aria-pressed="true"]{border-color:var(--crest);color:var(--crest)}
+.seg{display:flex}
+.seg button{border-radius:0}
+.seg button:first-child{border-radius:4px 0 0 4px}
+.seg button:last-child{border-radius:0 4px 4px 0;border-left:0}
+.status{font:400 13px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.status b{color:var(--ink);font-weight:500}
+.status .err{color:var(--warn)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{font-size:13px;padding:6px 10px;border-radius:999px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.row label{font-size:14px}
+.row output{font:500 13px var(--mono);color:var(--crest);font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--crest);margin:4px 0 0}
+.row input[type=text]{grid-column:1/-1;width:100%;font:400 14px var(--mono);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;margin-top:4px}
+.hint{grid-column:1/-1;font-size:12px;color:var(--muted)}
+details{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--panel)}
+summary{cursor:pointer;font-weight:500}
+details p{color:var(--muted);margin-top:10px;max-width:65ch}
+.eq{font:400 13px var(--mono);color:var(--ink);background:var(--bg);border-radius:4px;padding:10px;margin-top:10px;overflow-x:auto;white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Aperture Wavefront Lab</h1>
+    <p class="lede">A spherical wave leaves the source, meets an aperture cut in the surface S, and lands on the screen at the bottom. Every open point of S re-radiates; the screen trace is their sum.</p>
+  </header>
+
+  <div class="bar">
+    <button id="play" class="primary" type="button">Pause</button>
+    <button id="launch" type="button">Launch a wavefront</button>
+    <div class="seg" role="group" aria-label="Field display">
+      <button id="vWave" type="button" aria-pressed="true">Wave</button>
+      <button id="vInt" type="button" aria-pressed="false">Intensity</button>
+    </div>
+  </div>
+
+  <div class="bench">
+    <canvas id="field" aria-label="Wave field from source through aperture to screen"></canvas>
+    <canvas id="screen" aria-label="Intensity on the screen versus position"></canvas>
+  </div>
+  <p class="status" id="status"></p>
+
+  <section>
+    <div class="chips" aria-label="Presets">
+      <button type="button" data-p="slit">Single slit</button>
+      <button type="button" data-p="double">Double slit</button>
+      <button type="button" data-p="edge">Straight edge</button>
+      <button type="button" data-p="curved">Curved S</button>
+      <button type="button" data-p="tilt">Tilted S</button>
+      <button type="button" data-p="grating">Five slits</button>
+    </div>
+  </section>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Spherical wave</h2>
+      <div class="row"><label for="lambda">Wavelength λ</label><output id="o_lambda"></output>
+        <input id="lambda" type="range" min="1" max="6" step="0.25" value="2"></div>
+      <div class="row"><label for="xs">Source offset x₀</label><output id="o_xs"></output>
+        <input id="xs" type="range" min="-30" max="30" step="1" value="0"></div>
+      <div class="row"><label for="ds">Source to S distance</label><output id="o_ds"></output>
+        <input id="ds" type="range" min="8" max="60" step="1" value="24"></div>
+    </div>
+    <div class="card">
+      <h2>Aperture S</h2>
+      <div class="row"><label for="fx">Surface shape z = f(x)</label>
+        <input id="fx" type="text" value="0" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <span class="hint">Try x^2/60, 0.4*x, 3*sin(x/5). Positive z is toward the screen.</span></div>
+      <div class="row"><label for="open">Open intervals in x</label>
+        <input id="open" type="text" value="-5:5" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <span class="hint">start:end, comma separated. Example: -9:-5, 5:9</span></div>
+    </div>
+    <div class="card">
+      <h2>Screen and view</h2>
+      <div class="row"><label for="L">S to screen distance L</label><output id="o_L"></output>
+        <input id="L" type="range" min="20" max="140" step="2" value="60"></div>
+      <div class="row"><label for="W">View width</label><output id="o_W"></output>
+        <input id="W" type="range" min="40" max="160" step="4" value="80"></div>
+    </div>
+  </div>
+
+  <details>
+    <summary>What is being computed</summary>
+    <p>Incident wave from the source at distance ρ:</p>
+    <div class="eq">U₀ = (A/ρ) · exp[i(kρ − ωt)],   k = 2π/λ</div>
+    <p>Field behind S, from the Huygens–Fresnel–Kirchhoff integral over the open part of S. The aperture is uniform along y (slits), so the y integral is done by stationary phase and what remains is a line integral along the curve:</p>
+    <div class="eq">U(P) = e^(−iπ/4)/√λ · ∫ₛ K · A·exp[ik(ρ+r)] / √(ρ·r·(ρ+r)) dl</div>
+    <div class="eq">K = ½ (n̂·ŝ + n̂·r̂)   obliquity factor, n̂ = normal of S</div>
+    <p>ρ runs source to S, r runs S to the field point. Opaque parts of S absorb: reflections are left out (Kirchhoff boundary conditions). Wave view compresses amplitude so the weak diffracted field stays visible. Lengths are in any one unit, for example µm. Dashed marks on the screen trace show the geometric shadow edges.</p>
+  </details>
+</main>
+
+<script>
+"use strict";
+/* ---------- tiny expression parser for f(x): + - * / ^, parentheses, sin cos tan sqrt abs exp log, pi ---------- */
+function compileExpr(src){
+  const s = src.replace(/−/g,'-').replace(/\s+/g,''); let i = 0;
+  const FN = {sin:Math.sin,cos:Math.cos,tan:Math.tan,sqrt:Math.sqrt,abs:Math.abs,exp:Math.exp,log:Math.log,ln:Math.log};
+  if(!s) throw new Error('empty');
+  function expr(){ let a = term();
+    while(s[i]==='+'||s[i]==='-'){ const op=s[i++], b=term(), l=a; a = op==='+' ? x=>l(x)+b(x) : x=>l(x)-b(x); } return a; }
+  function term(){ let a = unary();
+    while(s[i]==='*'||s[i]==='/'){ const op=s[i++], b=unary(), l=a; a = op==='*' ? x=>l(x)*b(x) : x=>l(x)/b(x); } return a; }
+  function unary(){ if(s[i]==='-'){ i++; const a=unary(); return x=>-a(x); } if(s[i]==='+'){ i++; return unary(); } return power(); }
+  function power(){ const a = primary(); if(s[i]==='^'){ i++; const b=unary(); return x=>Math.pow(a(x),b(x)); } return a; }
+  function primary(){
+    if(s[i]==='('){ i++; const a=expr(); if(s[i]!==')') throw new Error('missing )'); i++; return a; }
+    let m = /^(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i.exec(s.slice(i));
+    if(m){ i+=m[0].length; const v=parseFloat(m[0]);
+      if(/[a-z(]/i.test(s[i]||'')){ const b=power(); return x=>v*b(x); }   // 2x, 3sin(x)
+      return ()=>v; }
+    m = /^[a-z]+/i.exec(s.slice(i));
+    if(m){ const id=m[0].toLowerCase(); i+=id.length;
+      if(id==='x') return x=>x;
+      if(id==='pi') return ()=>Math.PI;
+      if(FN[id]){ if(s[i]!=='(') throw new Error(id+' needs ( )'); i++; const a=expr(); if(s[i]!==')') throw new Error('missing )'); i++; const f=FN[id]; return x=>f(a(x)); }
+      throw new Error('unknown name "'+id+'"'); }
+    throw new Error('unexpected "'+(s[i]||'end')+'"');
+  }
+  const f = expr(); if(i<s.length) throw new Error('unexpected "'+s[i]+'"');
+  if(!isFinite(f(0.37))) throw new Error('not finite'); return f;
+}
+function parseOpenings(src){
+  const out=[];
+  for(const part of src.replace(/−/g,'-').split(/[,;]/)){
+    if(!part.trim()) continue;
+    const m=/^\s*(-?\d*\.?\d+)\s*(?::|to|\.\.)\s*(-?\d*\.?\d+)\s*$/.exec(part);
+    if(!m) throw new Error('write each opening as start:end');
+    const a=parseFloat(m[1]), b=parseFloat(m[2]); if(!(b>a)) throw new Error('end must be greater than start');
+    out.push([a,b]);
+  }
+  if(!out.length) throw new Error('add at least one opening');
+  return out.sort((p,q)=>p[0]-q[0]);
+}
+
+/* ---------- state ---------- */
+const $ = id=>document.getElementById(id);
+const fieldC=$('field'), screenC=$('screen'), fctx=fieldC.getContext('2d'), sctx=screenC.getContext('2d');
+const off=document.createElement('canvas'), octx=off.getContext('2d');
+const MARGIN=4, SPEED=14;
+let P=null, G=null;          // parameters, computed grid
+let view='wave', playing=!matchMedia('(prefers-reduced-motion: reduce)').matches;
+let t=0, launchT=null, last=0, lastGood={f:x=>0, fsrc:'0', op:[[-5,5]]};
+
+/* colour tables, packed ABGR */
+function lut(stops){ const u=new Uint32Array(256);
+  for(let i=0;i<256;i++){ const p=i/255; let k=0; while(k<stops.length-2 && p>stops[k+1][0]) k++;
+    const a=stops[k], b=stops[k+1], q=Math.min(1,Math.max(0,(p-a[0])/(b[0]-a[0])));
+    const r=a[1]+(b[1]-a[1])*q, g=a[2]+(b[2]-a[2])*q, bl=a[3]+(b[3]-a[3])*q;
+    u[i]=(255<<24)|(bl<<16)|(g<<8)|r; } return u; }
+const LUT_WAVE=lut([[0,214,236,255],[.22,74,168,255],[.5,7,10,15],[.78,255,180,84],[1,255,243,220]]);
+const LUT_INT =lut([[0,7,10,15],[.3,52,44,110],[.62,214,110,60],[.85,255,190,90],[1,255,246,226]]);
+
+/* ---------- physics ---------- */
+function readParams(){
+  const p={lambda:+$('lambda').value, xs:+$('xs').value, ds:+$('ds').value, L:+$('L').value, W:+$('W').value};
+  let err='';
+  try{ const src=$('fx').value; const raw=compileExpr(src); lastGood.f=raw; lastGood.fsrc=src; }
+  catch(e){ err='Could not read f(x): '+e.message+'. Showing the last valid shape.'; }
+  try{ lastGood.op=parseOpenings($('open').value); }
+  catch(e){ err='Could not read the openings: '+e.message+'. Showing the last valid ones.'; }
+  const raw=lastGood.f, lo=-0.7*p.ds, hi=0.7*p.L;
+  p.f=x=>{ const v=raw(x); return v!==v ? 0 : Math.min(hi,Math.max(lo,v)); };
+  p.openings=lastGood.op.map(([a,b])=>[Math.max(a,-p.W),Math.min(b,p.W)]).filter(([a,b])=>b>a);
+  p.err=err; return p;
+}
+function sampleAperture(p){
+  const h=p.lambda/4, X=[],Z=[],DL=[],NX=[],NZ=[],RHO=[],CS=[];
+  for(const [a,b] of p.openings){
+    const n=Math.max(2,Math.ceil((b-a)/h)), dx=(b-a)/n;
+    for(let i=0;i<n;i++){
+      const x=a+(i+.5)*dx, z=p.f(x), fp=(p.f(x+dx/2)-p.f(x-dx/2))/dx, nn=1/Math.sqrt(1+fp*fp);
+      const sx=x-p.xs, sz=z+p.ds, rho=Math.hypot(sx,sz), nx=-fp*nn, nz=nn;
+      X.push(x);Z.push(z);DL.push(dx/nn);NX.push(nx);NZ.push(nz);RHO.push(rho);CS.push((nx*sx+nz*sz)/rho);
+    }
+  }
+  const F=a=>Float64Array.from(a);
+  return {n:X.length,X:F(X),Z:F(Z),DL:F(DL),NX:F(NX),NZ:F(NZ),RHO:F(RHO),CS:F(CS)};
+}
+const _o=[0,0,0];
+function fieldAt(px,pz,S,p){
+  const k=2*Math.PI/p.lambda, rmin=.3*p.lambda; let re=0,im=0,path=1e30;
+  for(let j=0;j<S.n;j++){
+    const rx=px-S.X[j], rz=pz-S.Z[j]; let r=Math.sqrt(rx*rx+rz*rz);
+    const K=.5*(S.CS[j]+(S.NX[j]*rx+S.NZ[j]*rz)/(r||1)); if(r<rmin) r=rmin;
+    const tot=S.RHO[j]+r, w=K*S.DL[j]/Math.sqrt(S.RHO[j]*r*tot), ph=k*tot;
+    re+=w*Math.cos(ph); im+=w*Math.sin(ph); if(tot<path) path=tot;
+  }
+  const c=Math.SQRT1_2/Math.sqrt(p.lambda);
+  _o[0]=c*(re+im); _o[1]=c*(im-re); _o[2]=path; return _o;
+}
+function compute(){
+  const p=readParams(), S=sampleAperture(p), H=p.ds+MARGIN+p.L, z0=-(p.ds+MARGIN);
+  let nx=420, nz=Math.round(nx*H/p.W); if(nz>620){ nx=Math.round(nx*620/nz); nz=620; }
+  const N=nx*nz, A=new Float32Array(N), B=new Float32Array(N), PT=new Float32Array(N), IV=new Uint8Array(N);
+  const k=2*Math.PI/p.lambda, ref=1/p.ds, fcol=new Float64Array(nx); let maxPath=0;
+  for(let ix=0;ix<nx;ix++) fcol[ix]=p.f(-p.W/2+(ix+.5)*p.W/nx);
+  for(let iz=0;iz<nz;iz++){
+    const z=z0+(iz+.5)*H/nz;
+    for(let ix=0;ix<nx;ix++){
+      const x=-p.W/2+(ix+.5)*p.W/nx, i=iz*nx+ix; let re,im,path;
+      if(z<fcol[ix]){ const rho=Math.max(.3*p.lambda,Math.hypot(x-p.xs,z+p.ds)); re=Math.cos(k*rho)/rho; im=Math.sin(k*rho)/rho; path=rho; }
+      else if(S.n){ const o=fieldAt(x,z,S,p); re=o[0]; im=o[1]; path=o[2]; }
+      else { re=0; im=0; path=1e9; }
+      const amp=Math.hypot(re,im), a=amp/ref, g=amp>0?Math.min(1,Math.pow(a,.6))/amp:0;
+      A[i]=re*g; B[i]=im*g; PT[i]=path; IV[i]=Math.min(255,255*Math.pow(a*a,.35));
+      if(path<1e8 && path>maxPath) maxPath=path;
+    }
+  }
+  /* screen trace at z = L, relative to the unobstructed on-axis intensity */
+  const ns=560, I=new Float32Array(ns), I0=1/((p.ds+p.L)*(p.ds+p.L)); let imax=0;
+  for(let j=0;j<ns;j++){ const x=-p.W/2+(j+.5)*p.W/ns; let v=0;
+    if(S.n){ const o=fieldAt(x,p.L,S,p); v=(o[0]*o[0]+o[1]*o[1])/I0; } I[j]=v; if(v>imax) imax=v; }
+  const shadow=[];
+  for(const [a,b] of p.openings) for(const e of [a,b]) shadow.push(p.xs+(e-p.xs)*(p.L+p.ds)/(p.f(e)+p.ds));
+  P=p; G={nx,nz,A,B,PT,IV,H,z0,maxPath,I,imax,ns,shadow,S};
+  off.width=nx; off.height=nz; G.img=octx.createImageData(nx,nz); G.px=new Uint32Array(G.img.data.buffer);
+  fieldC.style.aspectRatio=nx+' / '+nz;
+  status(); sizeCanvases(); drawScreen(); drawField();
+}
+function status(){
+  const p=P, el=$('status');
+  if(p.err){ el.innerHTML='<span class="err">'+p.err+'</span>'; return; }
+  if(!p.openings.length){ el.innerHTML='<span class="err">The openings fall outside the view, so S blocks everything.</span>'; return; }
+  const [a,b]=p.openings[0], m=(a+b)/2, zf=p.f(m), rho=Math.hypot(m-p.xs,zf+p.ds), r=p.L-zf;
+  const NF=(b-a)*(b-a)/4/p.lambda*(1/rho+1/r);
+  const regime=NF<.3?'far field (Fraunhofer)':NF>1?'near field (Fresnel)':'between Fresnel and Fraunhofer';
+  el.innerHTML='Fresnel number <b>'+NF.toFixed(2)+'</b> · '+regime+' · <b>'+G.S.n+'</b> Huygens sources on S';
+}
+
+/* ---------- drawing ---------- */
+function sizeCanvases(){
+  const dpr=Math.min(2,window.devicePixelRatio||1);
+  for(const c of [fieldC,screenC]){ const r=c.getBoundingClientRect(), w=Math.round(r.width*dpr), h=Math.round(r.height*dpr);
+    if(c.width!==w||c.height!==h){ c.width=w; c.height=h; } }
+}
+function drawField(){
+  if(!G) return; const {nx,nz,A,B,PT,IV,px}=G, N=nx*nz;
+  const w=2*Math.PI/P.lambda*SPEED*t, c=Math.cos(w), s=Math.sin(w);
+  let front=Infinity; const edge=1.5*P.lambda;
+  if(launchT!==null){ front=SPEED*(t-launchT); if(front>G.maxPath+edge){ launchT=null; front=Infinity; $('launch').setAttribute('aria-pressed','false'); } }
+  const masked=front!==Infinity, wave=view==='wave';
+  for(let i=0;i<N;i++){
+    let m=1; if(masked){ m=(front-PT[i])/edge; if(m<=0){ px[i]=wave?LUT_WAVE[128]:LUT_INT[0]; continue; } if(m>1) m=1; }
+    px[i]= wave ? LUT_WAVE[(128+127*m*(A[i]*c+B[i]*s))|0] : LUT_INT[(IV[i]*m)|0];
+  }
+  octx.putImageData(G.img,0,0);
+  const cw=fieldC.width, ch=fieldC.height, d=cw/fieldC.getBoundingClientRect().width;
+  fctx.imageSmoothingEnabled=true; fctx.drawImage(off,0,0,cw,ch);
+  const X=x=>(x+P.W/2)/P.W*cw, Z=z=>(z-G.z0)/G.H*ch;
+  /* S: faint line over openings, solid over opaque parts */
+  const seg=(a,b,style,lw,dash)=>{ fctx.beginPath(); const n=Math.max(2,Math.ceil((b-a)/P.W*200));
+    for(let j=0;j<=n;j++){ const x=a+(b-a)*j/n; j?fctx.lineTo(X(x),Z(P.f(x))):fctx.moveTo(X(x),Z(P.f(x))); }
+    fctx.strokeStyle=style; fctx.lineWidth=lw*d; fctx.setLineDash(dash.map(v=>v*d)); fctx.stroke(); };
+  let cur=-P.W/2;
+  for(const [a,b] of P.openings){ if(a>cur) seg(cur,Math.min(a,P.W/2),'#dfe6f0',3.5,[]); seg(Math.max(a,-P.W/2),Math.min(b,P.W/2),'rgba(223,230,240,.35)',1,[2,4]); cur=Math.max(cur,b); }
+  if(cur<P.W/2) seg(cur,P.W/2,'#dfe6f0',3.5,[]);
+  fctx.setLineDash([]);
+  /* source */
+  fctx.beginPath(); fctx.arc(X(P.xs),Z(-P.ds),4*d,0,7); fctx.fillStyle='#fff'; fctx.fill();
+  fctx.beginPath(); fctx.arc(X(P.xs),Z(-P.ds),8*d,0,7); fctx.strokeStyle='rgba(255,255,255,.5)'; fctx.lineWidth=d; fctx.stroke();
+  /* labels */
+  fctx.font='500 '+(12*d)+'px "IBM Plex Mono",monospace'; fctx.textBaseline='middle';
+  const tag=(txt,x,y,al)=>{ fctx.textAlign=al; const wd=fctx.measureText(txt).width+10*d, x0=al==='left'?x-5*d:x-wd+5*d;
+    fctx.fillStyle='rgba(7,10,15,.72)'; fctx.fillRect(x0,y-9*d,wd,18*d); fctx.fillStyle='#e6ebf2'; fctx.fillText(txt,x,y); };
+  const sx=X(P.xs); tag('source', sx<cw*.7?sx+16*d:sx-16*d, Z(-P.ds), sx<cw*.7?'left':'right');
+  tag('S', 10*d, Z(P.f(-P.W/2))-14*d, 'left');
+  tag('screen', 10*d, ch-13*d, 'left');
+  fctx.fillStyle='#e6ebf2'; fctx.fillRect(0,ch-2*d,cw,2*d);
+}
+function niceStep(range,target){ const raw=range/target, p=Math.pow(10,Math.floor(Math.log10(raw))), m=raw/p; return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p; }
+function drawScreen(){
+  if(!G) return; const cw=screenC.width, ch=screenC.height, d=cw/screenC.getBoundingClientRect().width, {I,ns,imax}=G;
+  sctx.clearRect(0,0,cw,ch);
+  const band=18*d, top=band+14*d, bot=ch-22*d, X=x=>(x+P.W/2)/P.W*cw;
+  /* what the screen looks like */
+  const mx=imax||1;
+  for(let j=0;j<ns;j++){ const u=LUT_INT[Math.min(255,255*Math.pow(I[j]/mx,.5))|0];
+    sctx.fillStyle='rgb('+(u&255)+','+((u>>8)&255)+','+((u>>16)&255)+')'; sctx.fillRect(j/ns*cw,0,cw/ns+1,band); }
+  /* y scale */
+  const ystep=niceStep(mx,3)||1, ymax=Math.max(ystep,Math.ceil(mx/ystep-1e-9)*ystep), Y=v=>bot-(bot-top)*v/ymax;
+  sctx.font=(11*d)+'px "IBM Plex Mono",monospace'; sctx.lineWidth=d;
+  for(let v=0;v<=ymax+1e-9;v+=ystep){ sctx.strokeStyle='rgba(142,155,176,.18)'; sctx.beginPath(); sctx.moveTo(0,Y(v)); sctx.lineTo(cw,Y(v)); sctx.stroke();
+    if(v>0){ sctx.fillStyle='#8e9bb0'; sctx.textAlign='right'; sctx.textBaseline='top'; sctx.fillText(+v.toPrecision(3)+'', cw-6*d, Y(v)+3*d); } }
+  if(ymax>=1){ sctx.setLineDash([6*d,4*d]); sctx.strokeStyle='rgba(230,235,242,.45)'; sctx.beginPath(); sctx.moveTo(0,Y(1)); sctx.lineTo(cw,Y(1)); sctx.stroke(); sctx.setLineDash([]); }
+  /* geometric shadow edges */
+  sctx.setLineDash([3*d,4*d]); sctx.strokeStyle='#4aa8ff';
+  for(const x of G.shadow){ if(Math.abs(x)<P.W/2){ sctx.beginPath(); sctx.moveTo(X(x),top-6*d); sctx.lineTo(X(x),bot); sctx.stroke(); } }
+  sctx.setLineDash([]);
+  /* trace */
+  sctx.beginPath(); sctx.moveTo(0,bot);
+  for(let j=0;j<ns;j++) sctx.lineTo((j+.5)/ns*cw,Y(I[j]));
+  sctx.lineTo(cw,bot); sctx.closePath(); sctx.fillStyle='rgba(255,180,84,.16)'; sctx.fill();
+  sctx.beginPath(); for(let j=0;j<ns;j++){ const x=(j+.5)/ns*cw, y=Y(I[j]); j?sctx.lineTo(x,y):sctx.moveTo(x,y); }
+  sctx.strokeStyle='#ffb454'; sctx.lineWidth=1.6*d; sctx.stroke();
+  /* x axis */
+  sctx.strokeStyle='#263142'; sctx.lineWidth=d; sctx.beginPath(); sctx.moveTo(0,bot); sctx.lineTo(cw,bot); sctx.stroke();
+  const xs=niceStep(P.W,6); sctx.fillStyle='#8e9bb0'; sctx.textAlign='center'; sctx.textBaseline='top';
+  for(let x=Math.ceil((-P.W/2+P.W*.04)/xs)*xs; x<P.W/2-P.W*.04; x+=xs){ sctx.fillRect(X(x),bot,d,4*d); sctx.fillText((Math.round(x*100)/100)+'', X(x), bot+6*d); }
+  sctx.textAlign='left'; sctx.textBaseline='top'; sctx.fillStyle='#e6ebf2';
+  sctx.fillText('I / I₀ on screen vs x   (I₀ = no aperture, on axis)', 6*d, band+2*d);
+}
+
+/* ---------- loop and controls ---------- */
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000||0); last=now;
+  if(playing){ t+=dt; drawField(); }
+  requestAnimationFrame(frame);
+}
+let timer=0;
+function schedule(){ clearTimeout(timer); timer=setTimeout(compute,60); }
+function syncOutputs(){ for(const id of ['lambda','xs','ds','L','W']) $('o_'+id).textContent=(+$(id).value).toString(); }
+for(const id of ['lambda','xs','ds','L','W']) $(id).addEventListener('input',()=>{ syncOutputs(); schedule(); });
+for(const id of ['fx','open']) $(id).addEventListener('input',()=>{ clearTimeout(timer); timer=setTimeout(compute,350); });
+$('play').addEventListener('click',()=>setPlaying(!playing));
+function setPlaying(v){ playing=v; $('play').textContent=v?'Pause':'Play'; }
+$('launch').addEventListener('click',()=>{ launchT=t; $('launch').setAttribute('aria-pressed','true'); setPlaying(true); });
+function setView(v){ view=v; $('vWave').setAttribute('aria-pressed',v==='wave'); $('vInt').setAttribute('aria-pressed',v==='int'); drawField(); }
+$('vWave').addEventListener('click',()=>setView('wave'));
+$('vInt').addEventListener('click',()=>setView('int'));
+const PRESETS={
+  slit:   {fx:'0',       open:'-5:5',                               lambda:2, xs:0, ds:24, L:60, W:80},
+  double: {fx:'0',       open:'-9:-5, 5:9',                         lambda:2, xs:0, ds:24, L:80, W:100},
+  edge:   {fx:'0',       open:'0:200',                              lambda:2, xs:0, ds:24, L:60, W:80},
+  curved: {fx:'x^2/60',  open:'-14:14',                             lambda:2, xs:0, ds:24, L:60, W:80},
+  tilt:   {fx:'0.4*x',   open:'-7:7',                               lambda:2, xs:0, ds:30, L:60, W:80},
+  grating:{fx:'0',       open:'-17:-15, -9:-7, -1:1, 7:9, 15:17',   lambda:2, xs:0, ds:40, L:100, W:120}
+};
+document.querySelectorAll('[data-p]').forEach(b=>b.addEventListener('click',()=>{
+  const q=PRESETS[b.dataset.p]; for(const k in q) $(k).value=q[k]; syncOutputs(); compute(); }));
+window.addEventListener('resize',()=>{ sizeCanvases(); drawScreen(); drawField(); });
+setPlaying(playing); syncOutputs(); compute();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(()=>{ drawScreen(); drawField(); });
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

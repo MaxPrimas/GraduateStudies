@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bloch Sphere: Spin-½ Precession</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* Layout idea: the sphere and the numbers it stands for side by side (Bloch vector on the left, density matrix and expectation values on the right), the time traces under them, then the knobs. */
+:root{
+  color-scheme: dark;
+  --bg:#0c1118;
+  --panel:#141b25;
+  --line:#263142;
+  --ink:#e6ebf2;
+  --muted:#8e9bb0;
+  --crest:#ffb454;   /* Bloch vector, x trace, accent */
+  --trough:#4aa8ff;  /* field axis, y trace */
+  --third:#7ddc9a;   /* z trace */
+  --display:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--display);font-size:15px;line-height:1.45}
+main{max-width:860px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:14px}
+h1{font-size:22px;font-weight:600;margin:0;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:62ch}
+.back{font:400 13px var(--mono);color:var(--muted);text-decoration:none}
+.back:hover{color:var(--ink)}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button{font:500 14px var(--display);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:8px 12px;cursor:pointer}
+button:hover{border-color:var(--muted)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--crest);outline-offset:2px}
+button.primary{background:var(--crest);border-color:var(--crest);color:#1a1205}
+.top{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:12px;align-items:stretch}
+@media (max-width:680px){.top{grid-template-columns:1fr}}
+.stage{position:relative;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#070a0f}
+#sphere{display:block;width:100%;aspect-ratio:1;touch-action:none;cursor:grab}
+#sphere:active{cursor:grabbing}
+.stage .tip{position:absolute;left:10px;bottom:8px;font:400 11px var(--mono);color:var(--muted);pointer-events:none}
+.read{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:14px}
+.rho{display:grid;grid-template-columns:auto 1fr 1fr;gap:6px 12px;align-items:center;font:400 13px var(--mono);font-variant-numeric:tabular-nums}
+.rho .lab{grid-row:span 2;color:var(--muted);font-size:15px}
+.rho span.c{background:var(--bg);border-radius:4px;padding:8px 6px;text-align:center;white-space:nowrap}
+dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:0;font-size:14px}
+dt{color:var(--muted)}
+dd{margin:0;font:500 13px var(--mono);font-variant-numeric:tabular-nums;text-align:right}
+#trace{display:block;width:100%;height:190px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{font-size:13px;padding:6px 10px;border-radius:999px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:baseline}
+.row label{font-size:14px}
+.row output{font:500 13px var(--mono);color:var(--crest);font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--crest);margin:4px 0 0}
+.hint{grid-column:1/-1;font-size:12px;color:var(--muted)}
+details{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--panel)}
+summary{cursor:pointer;font-weight:500}
+details p{color:var(--muted);margin-top:10px;max-width:65ch}
+.eq{font:400 13px var(--mono);color:var(--ink);background:var(--bg);border-radius:4px;padding:10px;margin-top:10px;overflow-x:auto;white-space:nowrap}
+</style>
+</head>
+<body>
+<main>
+  <a class="back" href="index.html">&larr; all demos</a>
+  <header>
+    <h1>Bloch Sphere: Spin-½ Precession</h1>
+    <p class="lede">Every state of a spin-½ is a point on or inside this sphere. In a magnetic field the point circles the field axis at the Larmor frequency, and the density matrix on the right follows it.</p>
+  </header>
+
+  <div class="bar">
+    <button id="play" class="primary" type="button">Pause</button>
+    <button id="restart" type="button">Restart from initial state</button>
+    <button id="view" type="button">Reset view</button>
+  </div>
+
+  <div class="top">
+    <div class="stage">
+      <canvas id="sphere" aria-label="Bloch sphere showing the state vector, its path, and the field axis"></canvas>
+      <span class="tip">drag to rotate</span>
+    </div>
+    <div class="read">
+      <h2>Density matrix</h2>
+      <div class="rho">
+        <span class="lab">ρ =</span><span class="c" id="r00"></span><span class="c" id="r01"></span>
+        <span class="c" id="r10"></span><span class="c" id="r11"></span>
+      </div>
+      <h2>Measurements</h2>
+      <dl>
+        <dt>⟨σ<sub>x</sub>⟩</dt><dd id="ex" style="color:var(--crest)"></dd>
+        <dt>⟨σ<sub>y</sub>⟩</dt><dd id="ey" style="color:var(--trough)"></dd>
+        <dt>⟨σ<sub>z</sub>⟩</dt><dd id="ez" style="color:var(--third)"></dd>
+        <dt>Probability of spin up along z</dt><dd id="pup"></dd>
+        <dt>Purity Tr ρ²</dt><dd id="pur"></dd>
+        <dt>Entropy −Tr ρ ln ρ</dt><dd id="ent"></dd>
+      </dl>
+    </div>
+  </div>
+
+  <canvas id="trace" aria-label="Expectation values of sigma x, y and z versus time"></canvas>
+
+  <div class="chips" aria-label="Presets">
+    <button type="button" data-p="larmor">Larmor precession</button>
+    <button type="button" data-p="flip">Spin flip (field along x)</button>
+    <button type="button" data-p="tilt">Tilted field</button>
+    <button type="button" data-p="eigen">Stationary state</button>
+    <button type="button" data-p="mixed">Mixed state</button>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Initial state</h2>
+      <div class="row"><label for="th0">Polar angle θ</label><output id="o_th0"></output>
+        <input id="th0" type="range" min="0" max="180" step="1" value="90"></div>
+      <div class="row"><label for="ph0">Azimuth φ</label><output id="o_ph0"></output>
+        <input id="ph0" type="range" min="0" max="360" step="1" value="0"></div>
+      <div class="row"><label for="len">Bloch vector length |r|</label><output id="o_len"></output>
+        <input id="len" type="range" min="0" max="1" step="0.01" value="1">
+        <span class="hint">1 is a pure state. Below 1 the state is mixed; 0 is fully unpolarised.</span></div>
+    </div>
+    <div class="card">
+      <h2>Magnetic field</h2>
+      <div class="row"><label for="thB">Field tilt from z</label><output id="o_thB"></output>
+        <input id="thB" type="range" min="0" max="180" step="1" value="0"></div>
+      <div class="row"><label for="phB">Field azimuth</label><output id="o_phB"></output>
+        <input id="phB" type="range" min="0" max="360" step="1" value="0"></div>
+      <div class="row"><label for="om">Larmor frequency ω</label><output id="o_om"></output>
+        <input id="om" type="range" min="0" max="4" step="0.05" value="1.5">
+        <span class="hint">Radians per second of animation time.</span></div>
+    </div>
+  </div>
+
+  <details>
+    <summary>What is being computed</summary>
+    <p>Any spin-½ density matrix is fixed by a real vector r with |r| ≤ 1, the Bloch vector, whose components are the expectation values of the Pauli matrices:</p>
+    <div class="eq">ρ = ½ (1 + r·σ),   r = (⟨σx⟩, ⟨σy⟩, ⟨σz⟩)</div>
+    <p>A pure state cos(θ/2)|↑⟩ + e^(iφ) sin(θ/2)|↓⟩ sits on the surface at polar angle θ and azimuth φ. With the field along the unit vector n̂, the Hamiltonian and the equation of motion from iħ dρ/dt = [H, ρ] are</p>
+    <div class="eq">H = (ħω/2) n̂·σ   ⟹   dr/dt = ω n̂ × r</div>
+    <p>so r rotates rigidly about n̂ at angular frequency ω. The component along the field is conserved and the perpendicular part traces a circle. The motion drawn here is the exact rotation, not a numerical integration.</p>
+    <div class="eq">Tr ρ² = ½ (1 + |r|²),   S = −Σ p± ln p±,   p± = ½ (1 ± |r|)</div>
+    <p>Unitary evolution never changes |r|, so purity and entropy stay fixed while the state precesses: a field alone cannot turn a mixed state into a pure one.</p>
+  </details>
+</main>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id), D=Math.PI/180;
+const sphC=$('sphere'), trC=$('trace');
+const IDS=['th0','ph0','len','thB','phB','om'];
+let r0=[1,0,0], n=[0,0,1], omega=1.5, t=0, clock=0, last=0, trail=[], hist=[];
+let playing=!matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cam={az:-0.5, el:0.32};
+const WINDOW=12;   // seconds shown in the trace
+
+/* ---------- physics ---------- */
+const sph=(len,th,ph)=>[len*Math.sin(th)*Math.cos(ph), len*Math.sin(th)*Math.sin(ph), len*Math.cos(th)];
+function rot(r,n,a){   // Rodrigues: rotate r about unit n by angle a
+  const c=Math.cos(a), s=Math.sin(a), d=n[0]*r[0]+n[1]*r[1]+n[2]*r[2];
+  const x=[n[1]*r[2]-n[2]*r[1], n[2]*r[0]-n[0]*r[2], n[0]*r[1]-n[1]*r[0]];
+  return [r[0]*c+x[0]*s+n[0]*d*(1-c), r[1]*c+x[1]*s+n[1]*d*(1-c), r[2]*c+x[2]*s+n[2]*d*(1-c)];
+}
+const now_r=()=>rot(r0,n,omega*t);
+
+/* ---------- sphere drawing (orthographic, drag to rotate) ---------- */
+function setup(c){
+  const dpr=Math.min(2,window.devicePixelRatio||1), b=c.getBoundingClientRect(), w=Math.round(b.width*dpr), h=Math.round(b.height*dpr);
+  if(c.width!==w||c.height!==h){ c.width=w; c.height=h; }
+  const g=c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,b.width,b.height); return [g,b.width,b.height];
+}
+function drawSphere(r){
+  const [g,w,h]=setup(sphC), cx=w/2, cy=h/2, R=Math.min(w,h)*.36;
+  const ca=Math.cos(cam.az), sa=Math.sin(cam.az), ce=Math.cos(cam.el), se=Math.sin(cam.el);
+  // screen right, screen up, and depth toward the viewer
+  const P=p=>[cx+R*(-sa*p[0]+ca*p[1]), cy-R*(-se*ca*p[0]-se*sa*p[1]+ce*p[2]), ce*ca*p[0]+ce*sa*p[1]+se*p[2]];
+  const line=(a,b,style,lw,dash)=>{ const A=P(a),B=P(b); g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]); g.strokeStyle=style; g.lineWidth=lw; g.setLineDash(dash||[]); g.stroke(); g.setLineDash([]); };
+  const circle=(f,front,back,lw)=>{ let prev=P(f(0));
+    for(let i=1;i<=96;i++){ const q=P(f(i/96*2*Math.PI)); g.beginPath(); g.moveTo(prev[0],prev[1]); g.lineTo(q[0],q[1]);
+      g.strokeStyle=(prev[2]+q[2])/2>=0?front:back; g.lineWidth=lw; g.stroke(); prev=q; } };
+  /* body */
+  g.beginPath(); g.arc(cx,cy,R,0,7); g.fillStyle='rgba(20,27,37,.55)'; g.fill(); g.strokeStyle='#3a4658'; g.lineWidth=1.2; g.stroke();
+  circle(a=>[Math.cos(a),Math.sin(a),0],'rgba(142,155,176,.55)','rgba(142,155,176,.16)',1);
+  circle(a=>[Math.cos(a),0,Math.sin(a)],'rgba(142,155,176,.3)','rgba(142,155,176,.1)',1);
+  circle(a=>[0,Math.cos(a),Math.sin(a)],'rgba(142,155,176,.3)','rgba(142,155,176,.1)',1);
+  /* axes */
+  for(const e of [[1,0,0],[0,1,0],[0,0,1]]) line(e.map(v=>-v),e,'rgba(142,155,176,.35)',1);
+  g.font='500 12px "IBM Plex Mono",monospace'; g.textAlign='center'; g.textBaseline='middle';
+  const lab=(p,txt,col)=>{ const q=P(p); g.fillStyle=col; g.fillText(txt,q[0],q[1]); };
+  lab([1.14,0,0],'x','#8e9bb0'); lab([0,1.14,0],'y','#8e9bb0'); lab([0,0,1.16],'z  |↑⟩','#e6ebf2'); lab([0,0,-1.16],'|↓⟩','#e6ebf2');
+  /* field axis and the circle the tip must stay on */
+  line(n.map(v=>-1.08*v),n.map(v=>1.08*v),'#4aa8ff',1.6,[5,4]); lab(n.map(v=>1.2*v),'B','#4aa8ff');
+  const d=r[0]*n[0]+r[1]*n[1]+r[2]*n[2], perp=[r[0]-d*n[0],r[1]-d*n[1],r[2]-d*n[2]], pl=Math.hypot(...perp);
+  if(pl>1e-3){ const u=perp.map(v=>v/pl), v=[n[1]*u[2]-n[2]*u[1], n[2]*u[0]-n[0]*u[2], n[0]*u[1]-n[1]*u[0]];
+    circle(a=>[0,1,2].map(i=>d*n[i]+pl*(Math.cos(a)*u[i]+Math.sin(a)*v[i])),'rgba(74,168,255,.5)','rgba(74,168,255,.18)',1); }
+  /* trail */
+  for(let i=1;i<trail.length;i++){ const A=P(trail[i-1]), B=P(trail[i]), age=i/trail.length;
+    g.beginPath(); g.moveTo(A[0],A[1]); g.lineTo(B[0],B[1]); g.strokeStyle='rgba(255,180,84,'+(age*(B[2]>=0?.9:.3)).toFixed(3)+')'; g.lineWidth=2; g.stroke(); }
+  /* Bloch vector */
+  const O=P([0,0,0]), Tp=P(r);
+  g.beginPath(); g.moveTo(O[0],O[1]); g.lineTo(Tp[0],Tp[1]); g.strokeStyle='#ffb454'; g.lineWidth=2.6; g.stroke();
+  g.beginPath(); g.arc(Tp[0],Tp[1],6,0,7); g.fillStyle='#ffb454'; g.fill(); g.strokeStyle='#070a0f'; g.lineWidth=2; g.stroke();
+  g.beginPath(); g.arc(O[0],O[1],2.5,0,7); g.fillStyle='#8e9bb0'; g.fill();
+}
+
+/* ---------- readouts ---------- */
+const f2=v=>{ const a=Math.abs(v)<5e-4?0:v; return (a<0?'−':'')+Math.abs(a).toFixed(3); };
+function cplx(re,im){ if(Math.abs(im)<5e-4) return f2(re); return f2(re)+(im<0?' − ':' + ')+Math.abs(im).toFixed(3)+'i'; }
+function readouts(r){
+  $('r00').textContent=f2((1+r[2])/2); $('r11').textContent=f2((1-r[2])/2);
+  $('r01').textContent=cplx(r[0]/2,-r[1]/2); $('r10').textContent=cplx(r[0]/2,r[1]/2);
+  $('ex').textContent=f2(r[0]); $('ey').textContent=f2(r[1]); $('ez').textContent=f2(r[2]);
+  const len=Math.hypot(...r), p=(1+len)/2, q=1-p;
+  $('pup').textContent=((1+r[2])/2).toFixed(3); $('pur').textContent=((1+len*len)/2).toFixed(3);
+  $('ent').textContent=(-(p>0?p*Math.log(p):0)-(q>1e-12?q*Math.log(q):0)).toFixed(3);
+}
+
+/* ---------- time traces ---------- */
+function drawTrace(){
+  const [g,w,h]=setup(trC), L=34,R=44,Tp=24,B=22, t1=Math.max(clock,WINDOW), t0=t1-WINDOW;
+  const X=v=>L+(v-t0)/WINDOW*(w-L-R), Y=v=>Tp+(1-v)/2*(h-Tp-B);
+  g.font='11px "IBM Plex Mono",monospace'; g.lineWidth=1;
+  g.textAlign='right'; g.textBaseline='middle';
+  for(const v of [-1,0,1]){ g.strokeStyle='rgba(142,155,176,.18)'; g.beginPath(); g.moveTo(L,Y(v)); g.lineTo(w-R,Y(v)); g.stroke(); g.fillStyle='#8e9bb0'; g.fillText(v+'',L-6,Y(v)); }
+  g.textAlign='center'; g.textBaseline='top';
+  for(let v=Math.ceil(t0/2)*2; v<=t1; v+=2){ g.fillStyle='#8e9bb0'; g.fillText(v+' s',X(v),h-B+5); }
+  g.fillStyle='#e6ebf2'; g.textAlign='left'; g.fillText('expectation values vs time',8,6);
+  const cols=['#ffb454','#4aa8ff','#7ddc9a'], names=['⟨σx⟩','⟨σy⟩','⟨σz⟩'];
+  for(let k=0;k<3;k++){ g.beginPath(); let started=false;
+    for(const p of hist){ if(p[0]<t0) continue; const x=X(p[0]), y=Y(p[k+1]); started?g.lineTo(x,y):g.moveTo(x,y); started=true; }
+    g.strokeStyle=cols[k]; g.lineWidth=1.8; g.stroke(); }
+  /* direct labels at the right edge, nudged apart so they never overlap */
+  if(hist.length){ const lastP=hist[hist.length-1], ys=[0,1,2].map(k=>({k,y:Y(lastP[k+1])})).sort((a,b)=>a.y-b.y);
+    for(let i=1;i<3;i++) if(ys[i].y-ys[i-1].y<13) ys[i].y=ys[i-1].y+13;
+    g.textAlign='left'; g.textBaseline='middle';
+    for(const o of ys){ g.fillStyle=cols[o.k]; g.fillText(names[o.k],w-R+5,Math.min(h-B,Math.max(Tp,o.y))); } }
+}
+
+/* ---------- loop and controls ---------- */
+function render(){ const r=now_r(); drawSphere(r); readouts(r); drawTrace(); }
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000||0); last=now;
+  if(playing){ t+=dt; clock+=dt; const r=now_r();
+    trail.push(r); if(trail.length>260) trail.shift();
+    hist.push([clock,r[0],r[1],r[2]]); while(hist.length&&hist[0][0]<clock-WINDOW-1) hist.shift();
+    render(); }
+  requestAnimationFrame(frame);
+}
+function sync(){
+  $('o_th0').textContent=$('th0').value+'°'; $('o_ph0').textContent=$('ph0').value+'°'; $('o_len').textContent=(+$('len').value).toFixed(2);
+  $('o_thB').textContent=$('thB').value+'°'; $('o_phB').textContent=$('phB').value+'°'; $('o_om').textContent=(+$('om').value).toFixed(2)+' rad/s';
+}
+function applyState(){ r0=sph(+$('len').value,+$('th0').value*D,+$('ph0').value*D); t=0; trail=[]; sync(); render(); }
+function applyField(){ r0=now_r(); t=0; n=sph(1,+$('thB').value*D,+$('phB').value*D); omega=+$('om').value; sync(); render(); }   // keep the current state, change what it precesses about
+for(const id of ['th0','ph0','len']) $(id).addEventListener('input',applyState);
+for(const id of ['thB','phB','om']) $(id).addEventListener('input',applyField);
+function setPlaying(v){ playing=v; $('play').textContent=v?'Pause':'Play'; }
+$('play').addEventListener('click',()=>setPlaying(!playing));
+$('restart').addEventListener('click',()=>{ applyState(); setPlaying(true); });
+$('view').addEventListener('click',()=>{ cam.az=-0.5; cam.el=0.32; render(); });
+const PRESETS={
+  larmor:{th0:90,ph0:0,len:1,thB:0,phB:0,om:1.5},
+  flip:  {th0:0,ph0:0,len:1,thB:90,phB:0,om:1.5},
+  tilt:  {th0:20,ph0:0,len:1,thB:55,phB:90,om:1.5},
+  eigen: {th0:40,ph0:60,len:1,thB:40,phB:60,om:1.5},
+  mixed: {th0:70,ph0:0,len:0.55,thB:0,phB:0,om:1.5}
+};
+document.querySelectorAll('[data-p]').forEach(b=>b.addEventListener('click',()=>{ const q=PRESETS[b.dataset.p];
+  for(const id of IDS) $(id).value=q[id];
+  n=sph(1,q.thB*D,q.phB*D); omega=q.om; hist=[]; clock=0; applyState(); setPlaying(true); }));
+/* drag to rotate */
+let drag=null;
+sphC.addEventListener('pointerdown',e=>{ sphC.setPointerCapture(e.pointerId); drag=[e.clientX,e.clientY]; });
+sphC.addEventListener('pointermove',e=>{ if(!drag) return;
+  cam.az-=(e.clientX-drag[0])*.01; cam.el=Math.max(-1.5,Math.min(1.5,cam.el+(e.clientY-drag[1])*.01)); drag=[e.clientX,e.clientY]; if(!playing) render(); });
+const up=()=>{ drag=null; }; sphC.addEventListener('pointerup',up); sphC.addEventListener('pointercancel',up);
+window.addEventListener('resize',render);
+
+setPlaying(playing); applyState();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(render);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
